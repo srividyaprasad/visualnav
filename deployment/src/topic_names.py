@@ -1,9 +1,7 @@
 # topic names for ROS communication
 
 # image obs topics
-FRONT_IMAGE_TOPIC = "/usb_cam_front/image_raw"
-REVERSE_IMAGE_TOPIC = "/usb_cam_reverse/image_raw"
-IMAGE_TOPIC = "/usb_cam/image_raw"
+IMAGE_TOPIC = "/rgb"
 
 # exploration topics
 SUBGOALS_TOPIC = "/subgoals"
@@ -28,9 +26,5 @@ VIZ_NAV_IMAGE_TOPIC = "/nav_image"
 # visualization topics
 CHOSEN_SUBGOAL_TOPIC = "/chosen_subgoal"
 
-# recorded ont the robot
+# recorded on the robot
 ODOM_TOPIC = "/odom"
-BUMPER_TOPIC = "/mobile_base/events/bumper"
-JOY_BUMPER_TOPIC = "/joy_bumper"
-
-# move the robot
