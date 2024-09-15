@@ -4,7 +4,7 @@ import sys
 import io
 import matplotlib.pyplot as plt
 
-# ROS
+# ROS 2
 from sensor_msgs.msg import Image
 
 # pytorch

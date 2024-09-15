@@ -1,29 +1,20 @@
-
-import matplotlib.pyplot as plt
 import os
-from typing import Tuple, Sequence, Dict, Union, Optional, Callable
 import numpy as np
 import torch
 import torch.nn as nn
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-
-import matplotlib.pyplot as plt
 import yaml
-
-# ROS
-import rospy
-from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float32MultiArray
-from utils import msg_to_pil, to_numpy, transform_images, load_model
-
-from vint_train.training.train_utils import get_action
 import torch
-from PIL import Image as PILImage
-import numpy as np
 import argparse
-import yaml
 import time
+from vint_train.training.train_utils import get_action
 
+# ROS 2
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import Float32MultiArray
+from utils import msg_to_pil, to_numpy, transform_images, load_model
 
 # UTILS
 from topic_names import (IMAGE_TOPIC,
@@ -49,20 +40,92 @@ context_size = None
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-def callback_obs(msg):
-    obs_img = msg_to_pil(msg)
-    if context_size is not None:
-        if len(context_queue) < context_size + 1:
-            context_queue.append(obs_img)
-        else:
-            context_queue.pop(0)
-            context_queue.append(obs_img)
+class ExplorationNode(Node):
+    def __init__(self, args: argparse.Namespace):
+        super().__init__("exploration_node")
+        self.args = args
+        self.image_sub = self.create_subscription(Image, IMAGE_TOPIC, self.callback_obs, 10)
+        self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, 10)
+        self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, 10)
+        self.timer = self.create_timer(1 / RATE, self.timer_callback)
 
+    def callback_obs(self, msg):
+        obs_img = msg_to_pil(msg)
+        if context_size is not None:
+            if len(context_queue) < context_size + 1:
+                context_queue.append(obs_img)
+            else:
+                context_queue.pop(0)
+                context_queue.append(obs_img)
+
+    def timer_callback(self):
+        if len(context_queue) > context_size:
+            obs_images = transform_images(context_queue, model_params["image_size"], center_crop=False)
+            obs_images = obs_images.to(device)
+            fake_goal = torch.randn((1, 3, *model_params["image_size"])).to(device)
+            mask = torch.ones(1).long().to(device)  # ignore the goal
+
+            # infer action
+            with torch.no_grad():
+                # encoder vision features
+                obs_cond = model('vision_encoder', obs_img=obs_images, goal_img=fake_goal, input_goal_mask=mask)
+
+                # (B, obs_horizon * obs_dim)
+                if len(obs_cond.shape) == 2:
+                    obs_cond = obs_cond.repeat(self.args.num_samples, 1)
+                else:
+                    obs_cond = obs_cond.repeat(self.args.num_samples, 1, 1)
+
+                # initialize action from Gaussian noise
+                noisy_action = torch.randn(
+                    (self.args.num_samples, model_params["len_traj_pred"], 2), device=device)
+                naction = noisy_action
+
+                # init scheduler
+                noise_scheduler.set_timesteps(num_diffusion_iters)
+
+                start_time = self.get_clock().now()
+                for k in noise_scheduler.timesteps[:]:
+                    # predict noise
+                    noise_pred = model(
+                        'noise_pred_net',
+                        sample=naction,
+                        timestep=k,
+                        global_cond=obs_cond
+                    )
+
+                    # inverse diffusion step (remove noise)
+                    naction = noise_scheduler.step(
+                        model_output=noise_pred,
+                        timestep=k,
+                        sample=naction
+                    ).prev_sample
+                elapsed_time = (self.get_clock().now() - start_time).nanoseconds / 1e9
+                print("time elapsed:", elapsed_time)
+
+            naction = to_numpy(get_action(naction)) # 8 x 8 x 2            
+            flatten_naction = naction.flatten()
+
+            sampled_actions_msg = Float32MultiArray()
+            sampled_actions_msg.data = flatten_naction.tolist()
+            self.sampled_actions_pub.publish(sampled_actions_msg)
+
+            naction = naction[0]  # change this based on heuristic
+
+            chosen_waypoint = naction[self.args.waypoint]
+
+            if model_params["normalize"]:
+                chosen_waypoint *= (MAX_V / RATE)
+
+            waypoint_msg = Float32MultiArray()
+            waypoint_msg.data = chosen_waypoint.tolist()
+            self.waypoint_pub.publish(waypoint_msg)
+            print("Published waypoint")
 
 def main(args: argparse.Namespace):
-    global context_size
+    global context_size, model_params, num_diffusion_iters, noise_scheduler, device, model
 
-    # load model parameters
+    # Load model parameters
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
 
@@ -72,12 +135,14 @@ def main(args: argparse.Namespace):
 
     context_size = model_params["context_size"]
 
-    # load model weights
+    # Load model weights
     ckpth_path = model_paths[args.model]["ckpt_path"]
     if os.path.exists(ckpth_path):
         print(f"Loading model from {ckpth_path}")
     else:
         raise FileNotFoundError(f"Model weights not found at {ckpth_path}")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(
         ckpth_path,
         model_params,
@@ -94,82 +159,17 @@ def main(args: argparse.Namespace):
         prediction_type='epsilon'
     )
 
-    # ROS
-    rospy.init_node("EXPLORATION", anonymous=False)
-    rate = rospy.Rate(RATE)
-    image_curr_msg = rospy.Subscriber(
-        IMAGE_TOPIC, Image, callback_obs, queue_size=1)
-    waypoint_pub = rospy.Publisher(
-        WAYPOINT_TOPIC, Float32MultiArray, queue_size=1)  
-    sampled_actions_pub = rospy.Publisher(SAMPLED_ACTIONS_TOPIC, Float32MultiArray, queue_size=1)
+    # Initialize ROS 2 node
+    rclpy.init(args=None)
+    exploration_node = ExplorationNode(args)
 
-    print("Registered with master node. Waiting for image observations...")
-
-    while not rospy.is_shutdown():
-        # EXPLORATION MODE
-        waypoint_msg = Float32MultiArray()
-        if (
-                len(context_queue) > model_params["context_size"]
-            ):
-
-            obs_images = transform_images(context_queue, model_params["image_size"], center_crop=False)
-            obs_images = obs_images.to(device)
-            fake_goal = torch.randn((1, 3, *model_params["image_size"])).to(device)
-            mask = torch.ones(1).long().to(device) # ignore the goal
-
-            # infer action
-            with torch.no_grad():
-                # encoder vision features
-                obs_cond = model('vision_encoder', obs_img=obs_images, goal_img=fake_goal, input_goal_mask=mask)
-                
-                # (B, obs_horizon * obs_dim)
-                if len(obs_cond.shape) == 2:
-                    obs_cond = obs_cond.repeat(args.num_samples, 1)
-                else:
-                    obs_cond = obs_cond.repeat(args.num_samples, 1, 1)
-                
-                # initialize action from Gaussian noise
-                noisy_action = torch.randn(
-                    (args.num_samples, model_params["len_traj_pred"], 2), device=device)
-                naction = noisy_action
-
-                # init scheduler
-                noise_scheduler.set_timesteps(num_diffusion_iters)
-
-                start_time = time.time()
-                for k in noise_scheduler.timesteps[:]:
-                    # predict noise
-                    noise_pred = model(
-                        'noise_pred_net',
-                        sample=naction,
-                        timestep=k,
-                        global_cond=obs_cond
-                    )
-
-                    # inverse diffusion step (remove noise)
-                    naction = noise_scheduler.step(
-                        model_output=noise_pred,
-                        timestep=k,
-                        sample=naction
-                    ).prev_sample
-                print("time elapsed:", time.time() - start_time)
-
-            naction = to_numpy(get_action(naction))
-            
-            sampled_actions_msg = Float32MultiArray()
-            sampled_actions_msg.data = np.concatenate((np.array([0]), naction.flatten()))
-            sampled_actions_pub.publish(sampled_actions_msg)
-
-            naction = naction[0] # change this based on heuristic
-
-            chosen_waypoint = naction[args.waypoint]
-
-            if model_params["normalize"]:
-                chosen_waypoint *= (MAX_V / RATE)
-            waypoint_msg.data = chosen_waypoint
-            waypoint_pub.publish(waypoint_msg)
-            print("Published waypoint")
-        rate.sleep()
+    try:
+        rclpy.spin(exploration_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        exploration_node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
