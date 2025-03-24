@@ -16,7 +16,7 @@ tmux selectp -t 0    # go back to the first pane
 
 # Run the roslaunch command in the first pane
 tmux select-pane -t 0
-tmux send-keys "roslaunch vint_locobot.launch" Enter
+tmux send-keys "ros2 launch robot.launch" Enter
 
 # Run the navigate.py script with command line args in the second pane
 tmux select-pane -t 1

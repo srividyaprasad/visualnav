@@ -28,7 +28,7 @@ VIZ_NAV_IMAGE_TOPIC = "/nav_image"
 # visualization topics
 CHOSEN_SUBGOAL_TOPIC = "/chosen_subgoal"
 
-# recorded ont the robot
+# recorded on the robot
 ODOM_TOPIC = "/odom"
 BUMPER_TOPIC = "/mobile_base/events/bumper"
 JOY_BUMPER_TOPIC = "/joy_bumper"
