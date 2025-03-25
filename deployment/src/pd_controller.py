@@ -77,10 +77,6 @@ def callback_reached_goal(reached_goal_msg: Bool):
 	global reached_goal
 	reached_goal = reached_goal_msg.data
 
-WHEELBASE = 0.5
-WHEEL_RADIUS = 0.1
-HUB_WHEEL_RADIUS = 0.1
-
 class PDControllerNode(Node):
     def __init__(self):
         super().__init__('pd_controller')

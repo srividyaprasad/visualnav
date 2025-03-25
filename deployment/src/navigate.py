@@ -268,7 +268,7 @@ if __name__ == "__main__":
         "-m",
         default="nomad",
         type=str,
-        help="model name (only nomad is supported) (hint: check ../config/models.yaml) (default: nomad)",
+        help="model name (hint: check ../config/models.yaml) (default: nomad)",
     )
     parser.add_argument(
         "--waypoint",

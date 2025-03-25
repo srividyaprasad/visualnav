@@ -13,7 +13,7 @@ tmux selectp -t 0    # go back to the first pane
 # Run the navigate.py script with command line args in the second pane
 tmux select-pane -t 0
 # tmux send-keys "conda activate vint_deployment" Enter
-tmux send-keys "python navigate.py --dir $@" Enter
+tmux send-keys "python navigate.py --dir $@ --model vint -g 128" Enter
 
 # Run the pd_controller.py script in the fourth pane
 tmux select-pane -t 1
