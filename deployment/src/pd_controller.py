@@ -21,9 +21,9 @@ MAX_V = robot_config["max_v"]
 MAX_W = robot_config["max_w"]
 VEL_TOPIC = "/cmd_vel" # robot_config["vel_navi_topic"]
 DT = 1/robot_config["frame_rate"]
-RATE = 9
+RATE = 10
 EPS = 1e-8
-WAYPOINT_TIMEOUT = 1 # seconds # TODO: tune this
+WAYPOINT_TIMEOUT = 2 # seconds # TODO: tune this
 FLIP_ANG_VEL = np.pi/4
 
 # GLOBALS
@@ -59,18 +59,18 @@ def pd_controller(waypoint: np.ndarray) -> Tuple[float]:
 	else:
 		v = dx / DT
 		w = np.arctan(dy/dx) / DT
+	print("v,w before clipping: ", v, w)
 	v = np.clip(v, 0, MAX_V)
 	w = np.clip(w, -MAX_W, MAX_W)
+	print("v,w after clipping: ", v, w)
 	return v, w
 
 
 def callback_drive(waypoint_msg: Float32MultiArray):
 	"""Callback function for the waypoint subscriber"""
 	global vel_msg
-	print("seting waypoint")
-	print(waypoint_msg.data)
+	print(f"Setting waypoint {waypoint_msg.data}")
 	waypoint.set(waypoint_msg.data)
-	
 	
 def callback_reached_goal(reached_goal_msg: Bool):
 	"""Callback function for the reached goal subscriber"""
@@ -113,12 +113,12 @@ class PDControllerNode(Node):
         elif waypoint.is_valid(verbose=True):
             print('Way point is valid')
             v, w = pd_controller(waypoint.get())
-            print(v, w)
+            # print(v, w)
             if reverse_mode:
                 v *= -1
             vel_msg.linear.x = v
             vel_msg.angular.z = w
-            self.get_logger().info(f"publishing new vel: {v}, {w}")
+            self.get_logger().info(f"Publishing v: {v}, w: {w}")
             self.vel_out.publish(vel_msg)
 
 def main(args=None):

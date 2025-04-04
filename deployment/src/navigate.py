@@ -48,6 +48,7 @@ context_queue = []
 context_size = None  
 subgoal = []
 img_frame_id = 0
+frame_id = 0
 
 # Load the model 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -65,6 +66,8 @@ class NavigationNode(Node):
         self.reached_goal = False
 
     def callback_obs(self, msg):
+        global frame_id
+        # if frame_id % 6 == 0:
         obs_img = msg_to_pil(msg)
         if context_size is not None:
             if len(context_queue) < context_size + 1:
@@ -74,6 +77,7 @@ class NavigationNode(Node):
                 context_queue.append(obs_img)
             global img_frame_id
             img_frame_id +=1
+        # frame_id += 1
     
     def timer_callback(self):
         chosen_waypoint = np.zeros(4)
@@ -150,6 +154,7 @@ class NavigationNode(Node):
                 else:
                     last_image = None 
             else:
+                start_time = time.time()
                 start = max(closest_node - args.radius, 0)
                 end = min(closest_node + args.radius + 1, goal_node)
                 distances = []
@@ -161,27 +166,48 @@ class NavigationNode(Node):
                     goal_data = transform_images(sg_img, model_params["image_size"])
                     batch_obs_imgs.append(transf_obs_img)
                     batch_goal_data.append(goal_data)
-                    
+                
+                transform_time = time.time() - start_time
+                print(f"Image transformation time: {transform_time:.3f} seconds")
+                
                 # predict distances and waypoints
+                inference_start = time.time()
                 batch_obs_imgs = torch.cat(batch_obs_imgs, dim=0).to(device)
                 batch_goal_data = torch.cat(batch_goal_data, dim=0).to(device)
 
                 distances, waypoints = model(batch_obs_imgs, batch_goal_data)
+                inference_time = time.time() - inference_start
+                print(f"Model inference time: {inference_time:.3f} seconds")
+                
+                postprocess_start = time.time()
                 distances = to_numpy(distances)
                 waypoints = to_numpy(waypoints)
                 # look for closest node
                 min_dist_idx = np.argmin(distances)
                 # chose subgoal and output waypoints
                 if distances[min_dist_idx] > args.close_threshold:
+                    idx = min_dist_idx
                     chosen_waypoint = waypoints[min_dist_idx][args.waypoint]
                     closest_node = start + min_dist_idx
                 else:
                     chosen_waypoint = waypoints[min(
                         min_dist_idx + 1, len(waypoints) - 1)][args.waypoint]
+                    idx = min(min_dist_idx + 1, len(waypoints) - 1)
                     closest_node = min(start + min_dist_idx + 1, goal_node)
+                postprocess_time = time.time() - postprocess_start
+                print(f"Post-processing time: {postprocess_time:.3f} seconds")
+                
+                total_iteration_time = time.time() - start_time
+                print(f"Total iteration time: {total_iteration_time:.3f} seconds")
+                print("-" * 50)
+                if context_queue:
+                    last_image = context_queue[-1]
+                else:
+                    last_image = None 
         # RECOVERY MODE
         if model_params["normalize"]:
             chosen_waypoint[:2] *= (MAX_V / RATE)  
+            print("chosen waypoint: ", chosen_waypoint[:2])
         waypoint_msg = Float32MultiArray()
         waypoint_msg.data = chosen_waypoint.tolist()
         self.waypoint_pub.publish(waypoint_msg)
