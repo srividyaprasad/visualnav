@@ -9,7 +9,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist
 
-IMAGE_TOPIC = "/sim_camera/rgb"
+IMAGE_TOPIC = "/camera/camera/color/image_raw"
 TOPOMAP_IMAGES_DIR = "../topomaps/images"
 obs_img = None
 
