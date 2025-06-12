@@ -1,7 +1,6 @@
 import numpy as np
 import io
 import os
-import rosbag
 from PIL import Image
 import cv2
 from typing import Any, Tuple, List, Dict
