@@ -150,7 +150,7 @@ def transform_images(pil_imgs: List[PILImage.Image], image_size: List[int], cent
                 pil_img = TF.center_crop(pil_img, (h, int(h * IMAGE_ASPECT_RATIO)))  # crop to the right ratio
             else:
                 pil_img = TF.center_crop(pil_img, (int(w / IMAGE_ASPECT_RATIO), w))
-        pil_img = pil_img.resize(image_size) 
+        pil_img = pil_img.resize(image_size) #, resample=PILImage.BILINEAR
         transf_img = transform_type(pil_img)
         transf_img = torch.unsqueeze(transf_img, 0)
         transf_imgs.append(transf_img)
