@@ -10,6 +10,10 @@ import torchvision.transforms.functional as TF
 IMAGE_SIZE = (160, 120)
 IMAGE_ASPECT_RATIO = 4 / 3
 
+from cv_bridge import CvBridge
+bridge = CvBridge()
+
+
 
 def process_images(im_list: List, img_process_func) -> List:
     """
@@ -21,6 +25,10 @@ def process_images(im_list: List, img_process_func) -> List:
         images.append(img)
     return images
 
+def process_edubot_img(img_msg):
+    cv_img = bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
+    pil_img = Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))
+    return pil_img
 
 def process_tartan_img(msg) -> Image:
     """
@@ -71,6 +79,13 @@ def process_sacson_img(msg) -> Image:
     pil_image = Image.fromarray(image_np)
     return pil_image
 
+def process_sacson_img(msg) -> Image:
+    np_arr = np.fromstring(msg.data, np.uint8)
+    image_np = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    image_np = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(image_np)
+    return pil_image
+
 
 #######################################################################
 
@@ -112,8 +127,8 @@ def nav_to_xy_yaw(odom_msg, ang_offset: float) -> Tuple[List[float], float]:
 #######################################################################
 
 
-def get_images_and_odom(
-    bag: rosbag.Bag,
+def get_images_and_odom_ros2(
+    bag_data: Dict[str, List[Tuple[int, Any]]],
     imtopics: List[str] or str,
     odomtopics: List[str] or str,
     img_process_func: Any,
@@ -122,66 +137,63 @@ def get_images_and_odom(
     ang_offset: float = 0.0,
 ):
     """
-    Get image and odom data from a bag file
-
     Args:
-        bag (rosbag.Bag): bag file
-        imtopics (list[str] or str): topic name(s) for image data
-        odomtopics (list[str] or str): topic name(s) for odom data
-        img_process_func (Any): function to process image data
-        odom_process_func (Any): function to process odom data
-        rate (float, optional): rate to sample data. Defaults to 4.0.
-        ang_offset (float, optional): angle offset to add to odom data. Defaults to 0.0.
+        bag_data: dict from topic name to list of (timestamp, message) tuples
     Returns:
-        img_data (list): list of PIL images
-        traj_data (list): list of odom data
+        img_data: list of PIL images
+        traj_data: list of processed odometry
     """
-    # check if bag has both topics
-    odomtopic = None
-    imtopic = None
-    if type(imtopics) == str:
-        imtopic = imtopics
-    else:
-        for imt in imtopics:
-            if bag.get_message_count(imt) > 0:
-                imtopic = imt
-                break
-    if type(odomtopics) == str:
-        odomtopic = odomtopics
-    else:
-        for ot in odomtopics:
-            if bag.get_message_count(ot) > 0:
-                odomtopic = ot
-                break
-    if not (imtopic and odomtopic):
-        # bag doesn't have both topics
+
+    def select_first_existing_topic(topics, data_dict):
+        if isinstance(topics, str):
+            return topics if topics in data_dict else None
+        for t in topics:
+            if t in data_dict:
+                return t
+        return None
+
+    imtopic = select_first_existing_topic(imtopics, bag_data)
+    odomtopic = select_first_existing_topic(odomtopics, bag_data)
+
+    if not imtopic or not odomtopic:
+        return None, None
+
+    im_msgs = sorted(bag_data[imtopic], key=lambda x: x[0])
+    odom_msgs = sorted(bag_data[odomtopic], key=lambda x: x[0])
+
+    if not im_msgs or not odom_msgs:
         return None, None
 
     synced_imdata = []
     synced_odomdata = []
-    # get start time of bag in seconds
-    currtime = bag.get_start_time()
 
-    curr_imdata = None
-    curr_odomdata = None
+    start_time_ns = max(im_msgs[0][0], odom_msgs[0][0])
+    sample_interval_ns = int(1e9 / rate)
+    curr_time_ns = start_time_ns
 
-    for topic, msg, t in bag.read_messages(topics=[imtopic, odomtopic]):
-        if topic == imtopic:
-            curr_imdata = msg
-        elif topic == odomtopic:
-            curr_odomdata = msg
-        if (t.to_sec() - currtime) >= 1.0 / rate:
-            if curr_imdata is not None and curr_odomdata is not None:
-                synced_imdata.append(curr_imdata)
-                synced_odomdata.append(curr_odomdata)
-                currtime = t.to_sec()
+    im_idx, odom_idx = 0, 0
+    while im_idx < len(im_msgs) and odom_idx < len(odom_msgs):
+        # advance to current time
+        while im_idx < len(im_msgs) and im_msgs[im_idx][0] < curr_time_ns:
+            im_idx += 1
+        while odom_idx < len(odom_msgs) and odom_msgs[odom_idx][0] < curr_time_ns:
+            odom_idx += 1
+        if im_idx >= len(im_msgs) or odom_idx >= len(odom_msgs):
+            break
+
+        img_time, img_msg = im_msgs[im_idx]
+        odom_time, odom_msg = odom_msgs[odom_idx]
+
+        # pick closest to curr_time_ns
+        synced_imdata.append(img_msg)
+        synced_odomdata.append(odom_msg)
+        curr_time_ns += sample_interval_ns
+
+    if not synced_imdata or not synced_odomdata:
+        return None, None
 
     img_data = process_images(synced_imdata, img_process_func)
-    traj_data = process_odom(
-        synced_odomdata,
-        odom_process_func,
-        ang_offset=ang_offset,
-    )
+    traj_data = process_odom(synced_odomdata, odom_process_func, ang_offset=ang_offset)
 
     return img_data, traj_data
 

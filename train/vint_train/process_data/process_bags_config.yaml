@@ -26,4 +26,11 @@ sacson:
   img_process_func: "process_sacson_img"
   odom_process_func: "nav_to_xy_yaw"
 
+edubot:
+  odomtopics: "/wheel/odom"
+  imtopics: "/camera/rgb/image_raw"
+  ang_offset: 0.0
+  img_process_func: "process_edubot_img"
+  odom_process_func: "nav_to_xy_yaw"
+
 # add your own datasets below:
