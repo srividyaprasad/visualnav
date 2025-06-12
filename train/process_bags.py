@@ -61,15 +61,10 @@ def main(args: argparse.Namespace):
         bag_files = bag_files[: args.num_trajs]
 
     for bag_path in tqdm.tqdm(bag_files, desc="Bags processed"):
-        try:
-            bag_data = load_ros2_bag(
-                bag_path,
-                config[args.dataset_name]["imtopics"] + config[args.dataset_name]["odomtopics"],
-            )
-        except Exception as e:
-            print(e)
-            print(f"Error loading {bag_path}. Skipping...")
-            continue
+        bag_data = load_ros2_bag(
+            bag_path,
+            [config[args.dataset_name]["imtopics"], config[args.dataset_name]["odomtopics"]],
+        )
 
         traj_name = "_".join(bag_path.rstrip("/").split("/")[-2:])
 
@@ -104,8 +99,8 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-name", "-d", default="edubot_1", type=str)
-    parser.add_argument("--input-dir", "-i", type=str, default="../rosbags/edubot_1/")
+    parser.add_argument("--dataset-name", "-d", default="edubot", type=str)
+    parser.add_argument("--input-dir", "-i", type=str, default="rosbags/edubot_1/")
     parser.add_argument("--output-dir", "-o", default="../train_data/edubot_1/", type=str)
     parser.add_argument("--num-trajs", "-n", default=-1, type=int)
     parser.add_argument("--sample-rate", "-s", default=4.0, type=float)

@@ -28,7 +28,7 @@ sacson:
 
 edubot:
   odomtopics: "/wheel/odom"
-  imtopics: "/camera/rgb/image_raw"
+  imtopics: "/camera/camera/color/image_raw"
   ang_offset: 0.0
   img_process_func: "process_edubot_img"
   odom_process_func: "nav_to_xy_yaw"

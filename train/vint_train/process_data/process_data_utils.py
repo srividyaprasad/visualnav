@@ -125,7 +125,6 @@ def nav_to_xy_yaw(odom_msg, ang_offset: float) -> Tuple[List[float], float]:
 
 #######################################################################
 
-
 def get_images_and_odom_ros2(
     bag_data: Dict[str, List[Tuple[int, Any]]],
     imtopics: List[str] or str,
@@ -143,16 +142,8 @@ def get_images_and_odom_ros2(
         traj_data: list of processed odometry
     """
 
-    def select_first_existing_topic(topics, data_dict):
-        if isinstance(topics, str):
-            return topics if topics in data_dict else None
-        for t in topics:
-            if t in data_dict:
-                return t
-        return None
-
-    imtopic = select_first_existing_topic(imtopics, bag_data)
-    odomtopic = select_first_existing_topic(odomtopics, bag_data)
+    imtopic = "/camera/camera/color/image_raw"
+    odomtopic = "/wheel/odom"
 
     if not imtopic or not odomtopic:
         return None, None
